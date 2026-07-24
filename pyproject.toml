@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self-help-databricks-agent"
+version = "0.1.0"
+description = "LangGraph self-help agent with MLflow, Unity Catalog, Mosaic AI Serving, and CI/CD scaffolding"
+requires-python = ">=3.11"
+dependencies = [
+  "mlflow[databricks]>=3.1.0",
+  "langgraph>=0.2.70",
+  "langchain>=0.3.0",
+  "langchain-openai>=0.3.0",
+  "langchain-tavily>=0.1.0",
+  "pydantic>=2.7.0",
+  "python-dotenv>=1.0.1",
+  "pandas>=2.2.0",
+  "databricks-sdk>=0.30.0",
+  "requests>=2.32.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

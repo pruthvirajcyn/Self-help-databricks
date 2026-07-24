@@ -1,0 +1,96 @@
+name: self-help-langgraph-agent-ci-cd
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: self-help-agent-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MLFLOW_TRACKING_URI: databricks
+  MLFLOW_REGISTRY_URI: databricks-uc
+  MLFLOW_EXPERIMENT_NAME: /Shared/self_help_agent_ci
+  UC_MODEL_NAME: main.ai_agents.self_help_langgraph_agent
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+
+jobs:
+  test-evaluate-register-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: |
+          pytest -q --junitxml=test-results.xml
+
+      - name: Upload unit test artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: test-results.xml
+
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+
+      - name: Validate Databricks bundle
+        run: |
+          databricks bundle validate --target dev
+
+      - name: Register prompt versions
+        run: |
+          python scripts/register_prompts.py \
+            --git-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}"
+
+      - name: Log candidate agent and run MLflow evaluation
+        run: |
+          python scripts/log_eval_register.py \
+            --git-sha "${{ github.sha }}" \
+            --branch "${{ github.ref_name }}" \
+            --eval-dataset eval/eval_dataset.jsonl \
+            --register-on-pass "${{ github.ref == 'refs/heads/main' }}"
+
+      - name: Deploy Databricks bundle
+        if: github.ref == 'refs/heads/main'
+        run: |
+          databricks bundle deploy --target prod
+
+      - name: Deploy/update Mosaic AI Model Serving endpoint
+        if: github.ref == 'refs/heads/main'
+        run: |
+          python scripts/deploy_endpoint.py \
+            --endpoint-name self-help-agent-prod \
+            --model-name "$UC_MODEL_NAME" \
+            --alias candidate \
+            --promote-alias staging
+
+      - name: Smoke test endpoint
+        if: github.ref == 'refs/heads/main'
+        run: |
+          python scripts/smoke_test_endpoint.py \
+            --endpoint-name self-help-agent-prod
